@@ -1,166 +1,184 @@
-import { Authenticated, GitHubBanner, Refine } from "@refinedev/core";
+import React from "react";
+
+import {
+    GitHubBanner,
+    Refine,
+    LegacyAuthProvider as AuthProvider,
+} from "@refinedev/core";
 import {
     notificationProvider,
-    Layout,
+    RefineSnackbarProvider,
+    ReadyPage,
     ErrorComponent,
-    AuthPage,
-} from "@refinedev/antd";
+} from "@refinedev/mui";
+import { CssBaseline, GlobalStyles } from "@mui/material";
 import {
-    FileAddOutlined,
-    UserAddOutlined,
-    TeamOutlined,
-    InfoCircleOutlined,
-    SlidersOutlined,
-} from "@ant-design/icons";
-import routerProvider, {
-    NavigateToResource,
-    CatchAllNavigate,
-    UnsavedChangesNotifier,
-} from "@refinedev/react-router-v6";
-import { BrowserRouter, Routes, Route, Outlet } from "react-router-dom";
-import "@refinedev/antd/dist/reset.css";
-import { DataProvider } from "@refinedev/strapi-v4";
-import { authProvider, axiosInstance } from "./authProvider";
+    AccountCircleOutlined,
+    ChatBubbleOutline,
+    PeopleAltOutlined,
+    StarOutlineRounded,
+    VillaOutlined,
+} from "@mui/icons-material";
 
-import { CompanyList } from "pages/company";
-import { ClientList } from "pages/client";
-import { ContactsList, ContactEdit } from "pages/contacts";
-import { InvoiceList, InvoiceCreate, InvoiceEdit } from "pages/invoice";
-import { MissionList } from "pages/mission";
+import dataProvider from "@refinedev/simple-rest";
+import routerProvider from "@refinedev/react-router-v6/legacy";
+import axios, { AxiosRequestConfig } from "axios";
+import { Title, Sider, Layout, Header } from "components/layout";
+import { ColorModeContextProvider } from "contexts";
+import { CredentialResponse } from "interfaces/google";
+import { parseJwt } from "utils/parse-jwt";
 
-import { API_URL } from "../src/constants";
+import {
+    Login,
+    Home,
+    Agents,
+    MyProfile,
+    PropertyDetails,
+    AllProperties,
+    CreateProperty,
+    AgentProfile,
+    EditProperty,
+} from "pages";
+
+const axiosInstance = axios.create();
+axiosInstance.interceptors.request.use((request: AxiosRequestConfig) => {
+    const token = localStorage.getItem("token");
+    if (request.headers) {
+        request.headers["Authorization"] = `Bearer ${token}`;
+    } else {
+        request.headers = {
+            Authorization: `Bearer ${token}`,
+        };
+    }
+
+    return request;
+});
 
 function App() {
-    const dataProvider = DataProvider(API_URL + "/api", axiosInstance);
+    const authProvider: AuthProvider = {
+        login: async ({ credential }: CredentialResponse) => {
+            const profileObj = credential ? parseJwt(credential) : null;
+
+            if (profileObj) {
+                const response = await fetch(
+                    "http://localhost:8080/api/v1/users",
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            name: profileObj.name,
+                            email: profileObj.email,
+                            avatar: profileObj.picture,
+                        }),
+                    },
+                );
+
+                const data = await response.json();
+
+                if (response.status === 200) {
+                    localStorage.setItem(
+                        "user",
+                        JSON.stringify({
+                            ...profileObj,
+                            avatar: profileObj.picture,
+                            userid: data._id,
+                        }),
+                    );
+                } else {
+                    return Promise.reject();
+                }
+            }
+            localStorage.setItem("token", `${credential}`);
+
+            return Promise.resolve();
+        },
+        logout: () => {
+            const token = localStorage.getItem("token");
+
+            if (token && typeof window !== "undefined") {
+                localStorage.removeItem("token");
+                localStorage.removeItem("user");
+                axios.defaults.headers.common = {};
+                window.google?.accounts.id.revoke(token, () => {
+                    return Promise.resolve();
+                });
+            }
+
+            return Promise.resolve();
+        },
+        checkError: () => Promise.resolve(),
+        checkAuth: async () => {
+            const token = localStorage.getItem("token");
+
+            if (token) {
+                return Promise.resolve();
+            }
+            return Promise.reject();
+        },
+
+        getPermissions: async () => null,
+        getUserIdentity: async () => {
+            const user = localStorage.getItem("user");
+            if (user) {
+                return Promise.resolve(JSON.parse(user));
+            }
+        },
+    };
 
     return (
-        <BrowserRouter>
+        <ColorModeContextProvider>
             <GitHubBanner />
-            <Refine
-                routerProvider={routerProvider}
-                notificationProvider={notificationProvider}
-                dataProvider={dataProvider}
-                authProvider={authProvider}
-                resources={[
-                    {
-                        name: "companies",
-                        list: "/companies",
-                        meta: {
-                            label: "Company",
-                            icon: <InfoCircleOutlined />,
+            <CssBaseline />
+            <GlobalStyles styles={{ html: { WebkitFontSmoothing: "auto" } }} />
+            <RefineSnackbarProvider>
+                <Refine
+                    dataProvider={dataProvider("http://localhost:8080/api/v1")}
+                    notificationProvider={notificationProvider}
+                    ReadyPage={ReadyPage}
+                    catchAll={<ErrorComponent />}
+                    resources={[
+                        {
+                            name: "properties",
+                            list: AllProperties,
+                            show: PropertyDetails,
+                            create: CreateProperty,
+                            edit: EditProperty,
+                            icon: <VillaOutlined />,
                         },
-                    },
-                    {
-                        name: "clients",
-                        list: "/clients",
-                        meta: {
-                            icon: <TeamOutlined />,
+                        {
+                            name: "agents",
+                            list: Agents,
+                            show: AgentProfile,
+                            icon: <PeopleAltOutlined />,
                         },
-                    },
-                    {
-                        name: "contacts",
-                        list: "/contacts",
-                        edit: "/contacts/edit/:id",
-                        meta: {
-                            icon: <UserAddOutlined />,
+                        {
+                            name: "reviews",
+                            list: Home,
+                            icon: <StarOutlineRounded />,
                         },
-                    },
-                    {
-                        name: "missions",
-                        list: "/missions",
-                        meta: {
-                            icon: <SlidersOutlined />,
+                        {
+                            name: "messages",
+                            list: Home,
+                            icon: <ChatBubbleOutline />,
                         },
-                    },
-                    {
-                        name: "invoices",
-                        list: "/invoices",
-                        create: "/invoices/create",
-                        edit: "/invoices/edit/:id",
-                        meta: {
-                            icon: <FileAddOutlined />,
+                        {
+                            name: "my-profile",
+                            options: { label: "My Profile " },
+                            list: MyProfile,
+                            icon: <AccountCircleOutlined />,
                         },
-                    },
-                ]}
-                options={{
-                    syncWithLocation: true,
-                    warnWhenUnsavedChanges: true,
-                }}
-            >
-                <Routes>
-                    <Route
-                        element={
-                            <Authenticated
-                                fallback={<CatchAllNavigate to="/login" />}
-                            >
-                                <Layout>
-                                    <Outlet />
-                                </Layout>
-                            </Authenticated>
-                        }
-                    >
-                        <Route
-                            index
-                            element={
-                                <NavigateToResource resource="companies" />
-                            }
-                        />
-
-                        <Route path="companies" element={<CompanyList />} />
-
-                        <Route path="clients" element={<ClientList />} />
-
-                        <Route path="contacts">
-                            <Route index element={<ContactsList />} />
-                            <Route path="edit/:id" element={<ContactEdit />} />
-                        </Route>
-
-                        <Route path="missions" element={<MissionList />} />
-
-                        <Route path="invoices">
-                            <Route index element={<InvoiceList />} />
-                            <Route path="edit/:id" element={<InvoiceEdit />} />
-                            <Route path="create" element={<InvoiceCreate />} />
-                        </Route>
-                    </Route>
-
-                    <Route
-                        element={
-                            <Authenticated fallback={<Outlet />}>
-                                <NavigateToResource resource="companies" />
-                            </Authenticated>
-                        }
-                    >
-                        <Route
-                            path="/login"
-                            element={
-                                <AuthPage
-                                    formProps={{
-                                        initialValues: {
-                                            email: "demo@refine.dev",
-                                            password: "demodemo",
-                                        },
-                                    }}
-                                />
-                            }
-                        />
-                    </Route>
-
-                    <Route
-                        element={
-                            <Authenticated>
-                                <Layout>
-                                    <Outlet />
-                                </Layout>
-                            </Authenticated>
-                        }
-                    >
-                        <Route path="*" element={<ErrorComponent />} />
-                    </Route>
-                </Routes>
-                <UnsavedChangesNotifier />
-            </Refine>
-        </BrowserRouter>
+                    ]}
+                    Title={Title}
+                    Sider={Sider}
+                    Layout={Layout}
+                    Header={Header}
+                    legacyRouterProvider={routerProvider}
+                    legacyAuthProvider={authProvider}
+                    LoginPage={Login}
+                    DashboardPage={Home}
+                />
+            </RefineSnackbarProvider>
+        </ColorModeContextProvider>
     );
 }
 
